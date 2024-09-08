@@ -35,8 +35,12 @@ def index():
     return render_template('index.html')
 
 @app.route('/fetch', methods=['POST'])
-async def fetch_content():
+async def fetch_content_route():
     url = request.json['url']
+    content = await fetch_content(url)
+    return jsonify(content)
+
+async def fetch_content(url):
     print(f"Received request to fetch URL: {url}")
     try:
         # Check robots.txt
@@ -45,7 +49,7 @@ async def fetch_content():
         rp.fetch(robots_url)
         if not rp.is_allowed(url, '*'):
             print(f"Access to {url} is not allowed by robots.txt")
-            return jsonify({'error': 'Access to this URL is not allowed by robots.txt'}), 403
+            return {'error': 'Access to this URL is not allowed by robots.txt'}
 
         print("Fetching content with JavaScript support...")
         html_content = await fetch_url_with_js(url)
@@ -56,16 +60,16 @@ async def fetch_content():
         print(f"Title: {parsed_content['title']}")
         print(f"Summary length: {len(parsed_content['main_content'])}")
         
-        return jsonify({
+        return {
             'title': parsed_content['title'],
             'summary': parsed_content['main_content'],
             'full_text': parsed_content['main_content']
-        })
+        }
     except Exception as e:
         print(f"Error fetching content: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return {'error': str(e)}
 
 @app.route('/save_bookmark', methods=['POST'])
 def save_bookmark():
