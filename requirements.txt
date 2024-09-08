@@ -8,3 +8,4 @@ scikit-learn
 nltk
 robotexclusionrulesparser
 python-telegram-bot
+python-dotenv

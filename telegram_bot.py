@@ -1,12 +1,15 @@
 import os
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
 import requests
 
-# Replace with your actual bot token
-TOKEN = "7259660278:AAFb6KfcC6WW5zBPkmk3noLHNMJq-DfU7FQ"
-# Replace with your actual website URL
-WEBSITE_URL = "http://127.0.0.1:5000"
+# Load environment variables
+load_dotenv()
+
+# Get environment variables
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+WEBSITE_URL = os.getenv("WEBSITE_URL")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Welcome to your Bookmark Manager Bot! Use /help to see available commands.")
