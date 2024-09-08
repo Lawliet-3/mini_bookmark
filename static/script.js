@@ -1,60 +1,139 @@
-document.getElementById('url-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const url = document.getElementById('url-input').value;
-    const response = await fetch('/fetch', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url }),
+document.addEventListener('DOMContentLoaded', function() {
+    const urlForm = document.getElementById('url-form');
+    const urlInput = document.getElementById('url-input');
+    const contentDisplay = document.getElementById('content-display');
+    const saveButton = document.getElementById('save-button');
+    const downloadButton = document.getElementById('download-button');
+    const actionButtons = document.getElementById('action-buttons');
+
+    urlForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        fetchContent(urlInput.value);
     });
-    const data = await response.json();
-    if (data.error) {
-        document.getElementById('content-display').textContent = `Error: ${data.error}`;
-    } else {
-        displayParsedContent(data);
+
+    saveButton.addEventListener('click', saveBookmark);
+    downloadButton.addEventListener('click', function() {
+        const url = this.dataset.url;
+        const title = this.dataset.title;
+        const summary = this.dataset.summary;
+
+        // Create the content for the file
+        const content = `URL: ${url}\n\nTitle: ${title}\n\nSummary:\n${summary}`;
+
+        // Create a Blob with the content
+        const blob = new Blob([content], { type: 'text/plain' });
+
+        // Create a temporary URL for the Blob
+        const downloadUrl = window.URL.createObjectURL(blob);
+
+        // Create a temporary anchor element and trigger the download
+        const tempLink = document.createElement('a');
+        tempLink.href = downloadUrl;
+        tempLink.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.txt`;
+        document.body.appendChild(tempLink);
+        tempLink.click();
+        document.body.removeChild(tempLink);
+
+        // Clean up the temporary URL
+        window.URL.revokeObjectURL(downloadUrl);
+    });
+
+    function fetchContent(url) {
+        fetch('/fetch', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({url: url}),
+        })
+        .then(response => {
+            console.log('Response status:', response.status);
+            console.log('Response headers:', response.headers);
+            return response.text().then(text => {
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    console.error('Error parsing JSON:', e);
+                    console.log('Raw response:', text);
+                    throw new Error('Invalid JSON response from server');
+                }
+            });
+        })
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            if (contentDisplay) {
+                contentDisplay.innerHTML = `
+                    <h2>${data.title || 'No title'}</h2>
+                    <h3>Summary:</h3>
+                    <p>${data.summary || 'No summary available'}</p>
+                    <h3>Full Text:</h3>
+                    <p>${data.full_text || 'No full text available'}</p>
+                `;
+            } else {
+                console.error('contentDisplay element not found');
+            }
+            if (saveButton) {
+                saveButton.dataset.url = url;
+                saveButton.dataset.title = data.title || 'No title';
+                saveButton.dataset.summary = data.summary || 'No summary available';
+            } else {
+                console.error('saveButton element not found');
+            }
+            if (downloadButton) {
+                downloadButton.dataset.url = url;
+                downloadButton.dataset.title = data.title || 'No title';
+                downloadButton.dataset.summary = data.summary || 'No summary available';
+            } else {
+                console.error('downloadButton element not found');
+            }
+            if (actionButtons) {
+                actionButtons.style.display = 'flex';
+            } else {
+                console.error('actionButtons element not found');
+            }
+        })
+        .catch(error => {
+            console.error('Fetch error:', error);
+            if (contentDisplay) {
+                contentDisplay.innerHTML = `<p>Error: ${error.message || 'An error occurred while fetching the content.'}</p>`;
+            } else {
+                console.error('contentDisplay element not found');
+            }
+        });
+    }
+
+    function saveBookmark() {
+        const bookmarkData = {
+            url: saveButton.dataset.url,
+            title: saveButton.dataset.title,
+            summary: saveButton.dataset.summary
+        };
+
+        fetch('/save_bookmark', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(bookmarkData),
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert('Bookmark saved successfully!');
+            } else {
+                alert('Failed to save bookmark.');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('An error occurred while saving the bookmark.');
+        });
+    }
+
+    // Initially hide the action buttons
+    if (actionButtons) {
+        actionButtons.style.display = 'none';
     }
 });
-
-function displayParsedContent(data) {
-    const contentDisplay = document.getElementById('content-display');
-    contentDisplay.innerHTML = `
-        <h2>${data.title}</h2>
-        <p><strong>URL:</strong> ${data.url}</p>
-        <h3>Main Content:</h3>
-        <p>${data.main_content}</p>
-        <h3>Metadata:</h3>
-        <ul>
-            <li><strong>Author:</strong> ${data.metadata.author}</li>
-            <li><strong>Description:</strong> ${data.metadata.description}</li>
-            <li><strong>Keywords:</strong> ${data.metadata.keywords}</li>
-        </ul>
-        <button onclick="saveBookmark(${JSON.stringify(data)})">Save Bookmark</button>
-    `;
-}
-
-async function saveBookmark(data) {
-    const response = await fetch('/save', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(data),
-    });
-    const result = await response.json();
-    alert(result.message);
-}
-
-async function loadBookmarks() {
-    const response = await fetch('/bookmarks');
-    const bookmarks = await response.json();
-    const bookmarksList = document.getElementById('bookmarks-list');
-    bookmarksList.innerHTML = bookmarks.map(bookmark => `
-        <li>
-            <a href="${bookmark.url}" target="_blank">${bookmark.title}</a>
-        </li>
-    `).join('');
-}
-
-// Call loadBookmarks when the page loads
-window.addEventListener('load', loadBookmarks);

@@ -1,6 +1,9 @@
 import json
 import os
 from flask import Flask, render_template, request, jsonify
+from flask_pymongo import PyMongo
+from bson import ObjectId
+from datetime import datetime
 from bs4 import BeautifulSoup
 import requests
 from trafilatura import extract
@@ -15,6 +18,8 @@ import time
 import robotexclusionrulesparser
 
 app = Flask(__name__)
+app.config["MONGO_URI"] = "mongodb://localhost:27017/minibookmark"
+mongo = PyMongo(app)
 
 BOOKMARKS_FILE = 'bookmarks.json'
 
@@ -30,36 +35,57 @@ def index():
     return render_template('index.html')
 
 @app.route('/fetch', methods=['POST'])
-async def fetch_url():
+async def fetch_content():
     url = request.json['url']
+    print(f"Received request to fetch URL: {url}")
     try:
         # Check robots.txt
         robots_url = f"{url.split('//', 1)[0]}//{url.split('//', 1)[1].split('/', 1)[0]}/robots.txt"
+        print(f"Checking robots.txt at: {robots_url}")
         rp.fetch(robots_url)
         if not rp.is_allowed(url, '*'):
+            print(f"Access to {url} is not allowed by robots.txt")
             return jsonify({'error': 'Access to this URL is not allowed by robots.txt'}), 403
 
-        # Implement rate limiting
-        time.sleep(1)  # Simple delay-based rate limiting
-
-        # Fetch content with JavaScript support
+        print("Fetching content with JavaScript support...")
         html_content = await fetch_url_with_js(url)
+        print("Parsing content...")
         parsed_content = parse_content(html_content, url)
-        return jsonify(parsed_content)
+        
+        print(f"Fetched URL: {url}")
+        print(f"Title: {parsed_content['title']}")
+        print(f"Summary length: {len(parsed_content['main_content'])}")
+        
+        return jsonify({
+            'title': parsed_content['title'],
+            'summary': parsed_content['main_content'],
+            'full_text': parsed_content['main_content']
+        })
     except Exception as e:
-        return jsonify({'error': str(e)}), 400
+        print(f"Error fetching content: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
-@app.route('/save', methods=['POST'])
+@app.route('/save_bookmark', methods=['POST'])
 def save_bookmark():
-    bookmark = request.json
-    bookmarks = load_bookmarks()
-    bookmarks.append(bookmark)
-    save_bookmarks(bookmarks)
-    return jsonify({'message': 'Bookmark saved successfully'})
+    data = request.json
+    try:
+        mongo.db.bookmarks.insert_one({
+            'url': data['url'],
+            'title': data['title'],
+            'summary': data['summary']
+        })
+        return jsonify({'success': True})
+    except Exception as e:
+        print(f"Error saving bookmark: {str(e)}")
+        return jsonify({'success': False})
 
 @app.route('/bookmarks', methods=['GET'])
 def get_bookmarks():
-    bookmarks = load_bookmarks()
+    bookmarks = list(mongo.db.bookmarks.find().sort('created_at', -1))
+    for bookmark in bookmarks:
+        bookmark['_id'] = str(bookmark['_id'])  # Convert ObjectId to string
     return jsonify(bookmarks)
 
 async def fetch_url_with_js(url):
@@ -155,4 +181,4 @@ def train_classifier():
 classifier = train_classifier()
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, use_reloader=True, reloader_type='stat')
