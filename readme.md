@@ -8,6 +8,8 @@ This project is a Bookmark Manager web application with an integrated Telegram b
 - List saved bookmarks
 - Fetch content from URLs
 - Telegram bot integration for remote access
+- Download fetched content as a text file
+- Seamless login between Telegram bot and web interface
 
 ## Prerequisites
 
@@ -33,6 +35,7 @@ This project is a Bookmark Manager web application with an integrated Telegram b
    TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
    WEBSITE_URL=http://your-website-url.com
    MONGO_URI=mongodb://localhost:27017/minibookmark
+   SECRET_KEY=your_secret_key_here
    ```
 
 ## Usage
@@ -60,9 +63,12 @@ This project is a Bookmark Manager web application with an integrated Telegram b
 3. Start a conversation with your bot and use the following commands:
    - `/start`: Get a welcome message
    - `/help`: List available commands
+   - `/login`: Log in to your account
+   - `/signup`: Create a new account
+   - `/logout`: Log out of your account
    - `/add <url>`: Add a new bookmark
    - `/list`: List all saved bookmarks
-   - `/fetch <url>`: Fetch content from a URL
+   - `/fetch <url>`: Fetch content from a URL and offer to download
    - `/website`: Get a link to the web application
 
 ## Development
@@ -71,6 +77,12 @@ This project is a Bookmark Manager web application with an integrated Telegram b
 - `telegram_bot.py`: Contains the Telegram bot implementation
 - `templates/`: Contains HTML templates for the web interface
 - `static/`: Contains static files (CSS, JavaScript) for the web interface
+
+## Recent Updates
+
+- Added ability to download fetched content as a text file through Telegram
+- Fixed character encoding issues when downloading content
+- Improved error handling and user feedback in both web and Telegram interfaces
 
 ## Contributing
 
