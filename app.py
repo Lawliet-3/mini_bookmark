@@ -1,6 +1,6 @@
 import json
 import os
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, session, send_from_directory
 from flask_pymongo import PyMongo
 from bson import ObjectId
 from datetime import datetime
@@ -16,9 +16,12 @@ import nltk
 from nltk.corpus import stopwords
 import time
 import robotexclusionrulesparser
+from werkzeug.security import generate_password_hash, check_password_hash
+from bson.objectid import ObjectId
 
-app = Flask(__name__)
-app.config["MONGO_URI"] = "mongodb://localhost:27017/minibookmark"
+app = Flask(__name__, static_folder='static')
+app.config["MONGO_URI"] = "mongodb://localhost:27017/bookmarkmanager"
+app.secret_key = os.environ.get('SECRET_KEY')
 mongo = PyMongo(app)
 
 BOOKMARKS_FILE = 'bookmarks.json'
@@ -34,8 +37,44 @@ rp = robotexclusionrulesparser.RobotExclusionRulesParser()
 def index():
     return render_template('index.html')
 
+@app.route('/signup', methods=['POST'])
+def signup():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    
+    if mongo.db.users.find_one({"username": username}):
+        return jsonify({"error": "Username already exists"}), 400
+    
+    hashed_password = generate_password_hash(password)
+    mongo.db.users.insert_one({"username": username, "password": hashed_password})
+    
+    session['username'] = username
+    return jsonify({"success": True, "username": username})
+
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    
+    user = mongo.db.users.find_one({"username": username})
+    if user and check_password_hash(user['password'], password):
+        session['username'] = username
+        return jsonify({"success": True, "username": username})
+    else:
+        return jsonify({"error": "Invalid username or password"}), 401
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return jsonify({"success": True})
+
 @app.route('/fetch', methods=['POST'])
 async def fetch_content_route():
+    if 'username' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
     url = request.json['url']
     content = await fetch_content(url)
     return jsonify(content)
@@ -73,9 +112,13 @@ async def fetch_content(url):
 
 @app.route('/save_bookmark', methods=['POST'])
 def save_bookmark():
+    if 'username' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
     data = request.json
     try:
         mongo.db.bookmarks.insert_one({
+            'username': session['username'],
             'url': data['url'],
             'title': data['title'],
             'summary': data['summary']
@@ -87,7 +130,10 @@ def save_bookmark():
 
 @app.route('/bookmarks', methods=['GET'])
 def get_bookmarks():
-    bookmarks = list(mongo.db.bookmarks.find().sort('created_at', -1))
+    if 'username' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    bookmarks = list(mongo.db.bookmarks.find({'username': session['username']}).sort('_id', -1))
     for bookmark in bookmarks:
         bookmark['_id'] = str(bookmark['_id'])  # Convert ObjectId to string
     return jsonify(bookmarks)
@@ -184,5 +230,36 @@ def train_classifier():
 
 classifier = train_classifier()
 
+@app.route('/check_login')
+def check_login():
+    return jsonify({"logged_in": 'username' in session})
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    if path != "" and os.path.exists(app.static_folder + '/' + path):
+        return send_from_directory(app.static_folder, path)
+    else:
+        return send_from_directory(app.static_folder, 'index.html')
+
+@app.route('/delete_bookmark/<bookmark_id>', methods=['DELETE'])
+def delete_bookmark(bookmark_id):
+    if 'username' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    try:
+        result = mongo.db.bookmarks.delete_one({
+            '_id': ObjectId(bookmark_id),
+            'username': session['username']
+        })
+        
+        if result.deleted_count == 1:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'Bookmark not found or not authorized'}), 404
+    except Exception as e:
+        print(f"Error deleting bookmark: {str(e)}")
+        return jsonify({'success': False, 'error': 'Server error'}), 500
+
 if __name__ == '__main__':
-    app.run(debug=True, use_reloader=True, reloader_type='stat')
+    app.run(use_reloader=True, port=5000, threaded=True)

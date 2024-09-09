@@ -122,6 +122,7 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             if (data.success) {
                 alert('Bookmark saved successfully!');
+                loadBookmarks();  // Reload the bookmarks list
             } else {
                 alert('Failed to save bookmark.');
             }
@@ -131,6 +132,42 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('An error occurred while saving the bookmark.');
         });
     }
+
+    function loadBookmarks() {
+        fetch('/bookmarks')
+            .then(response => response.json())
+            .then(bookmarks => {
+                const bookmarkList = document.getElementById('bookmark-list');
+                bookmarkList.innerHTML = '';
+                bookmarks.forEach(bookmark => {
+                    const item = document.createElement('li');
+                    item.className = 'bg-gray-50 rounded-lg p-4 shadow-sm hover:shadow-md transition duration-300';
+                    item.innerHTML = `
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h3 class="text-lg font-semibold text-gray-800">${bookmark.title}</h3>
+                                <p class="text-sm text-gray-600">${bookmark.url}</p>
+                            </div>
+                            <div class="flex space-x-2">
+                                <button class="text-blue-500 hover:text-blue-700" onclick="editBookmark('${bookmark._id}')">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="text-red-500 hover:text-red-700" onclick="deleteBookmark('${bookmark._id}')">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    bookmarkList.appendChild(item);
+                });
+            })
+            .catch(error => {
+                console.error('Error loading bookmarks:', error);
+            });
+    }
+
+    // Call loadBookmarks when the page loads
+    document.addEventListener('DOMContentLoaded', loadBookmarks);
 
     // Initially hide the action buttons
     if (actionButtons) {

@@ -9,3 +9,4 @@ nltk
 robotexclusionrulesparser
 python-telegram-bot
 python-dotenv
+aiofiles
