@@ -62,8 +62,9 @@
         </div>
 
         <div id="bookmark-manager" class="hidden w-full">
-            <header class="mb-8">
-                <h1 class="text-4xl font-bold mb-8 text-center">Mini Bookmark</h1>
+            <header class="mb-8 flex justify-between items-center">
+                <h1 class="text-4xl font-bold text-center">Mini Bookmark</h1>
+                <button id="logout-button" class="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition duration-300">Logout</button>
             </header>
             <main class="flex flex-col lg:flex-row gap-8">
                 <div class="lg:w-3/4">
@@ -96,14 +97,13 @@
     <script src="{{ url_for('static', filename='script.js') }}"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            const logoutButton = document.getElementById('logout-button');
+            if (logoutButton) {
+                logoutButton.addEventListener('click', logout);
+            }
+
             const authForms = document.getElementById('auth-forms');
             const bookmarkManager = document.getElementById('bookmark-manager');
-
-            // Check if the user is logged in (you'll need to implement this check)
-            function isLoggedIn() {
-                // Return true if the user is logged in, false otherwise
-                // This could be checking for a session token in localStorage, for example
-            }
 
             function showBookmarkManager() {
                 authForms.classList.add('hidden');
@@ -116,24 +116,93 @@
                 bookmarkManager.classList.add('hidden');
             }
 
-            if (isLoggedIn()) {
-                showBookmarkManager();
-            } else {
-                showAuthForms();
-            }
+            // Always start by showing auth forms
+            showAuthForms();
+
+            // Then check login status
+            isLoggedIn().then(loggedIn => {
+                console.log('Is logged in:', loggedIn);
+                if (loggedIn) {
+                    showBookmarkManager();
+                } else {
+                    showAuthForms();
+                }
+            });
 
             // Implement login function
             window.login = function() {
-                // Perform login logic here
-                // If login is successful:
-                showBookmarkManager();
+                const username = document.getElementById('login-username').value;
+                const password = document.getElementById('login-password').value;
+                fetch('/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password }),
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.success) {
+                        showBookmarkManager();
+                    } else {
+                        alert('Login failed: ' + (data.error || 'Unknown error'));
+                    }
+                })
+                .catch(error => {
+                    console.error('Login error:', error);
+                    alert('An error occurred during login: ' + error.message);
+                });
             }
 
             // Implement signup function
             window.signup = function() {
-                // Perform signup logic here
-                // If signup is successful:
-                showBookmarkManager();
+                const username = document.getElementById('signup-username').value;
+                const password = document.getElementById('signup-password').value;
+                fetch('/signup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password }),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showBookmarkManager();
+                    } else {
+                        alert('Signup failed: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred during signup.');
+                });
+            }
+
+            function logout() {
+                fetch('/logout', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showAuthForms();
+                        // Clear input fields
+                        document.getElementById('login-username').value = '';
+                        document.getElementById('login-password').value = '';
+                        document.getElementById('signup-username').value = '';
+                        document.getElementById('signup-password').value = '';
+                    } else {
+                        alert('Logout failed: ' + data.error);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred during logout.');
+                });
             }
 
             setupUrlForm();
@@ -226,34 +295,40 @@
                 <h2 class="text-2xl font-bold mb-4">${escapeHTML(title)}</h2>
                 <p class="text-gray-600 mb-2">${escapeHTML(url)}</p>
                 <h3 class="text-xl font-semibold mb-2">Summary:</h3>
-                <div class="mb-4">${summary}</div>
+                <div class="mb-4"></div>
             `;
-
-            // Show the content display and scroll to it
-            
+            const summaryDiv = contentDisplay.querySelector('div');
+            summaryDiv.innerHTML = summary;
             contentDisplay.scrollIntoView({ behavior: 'smooth' });
         }
 
         function fetchContent(url) {
-            // Use this function for the initial fetch from the URL input
-            fetch('/fetch', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({url: url}),
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.error) {
-                    throw new Error(data.error);
+            isLoggedIn().then(loggedIn => {
+                if (!loggedIn) {
+                    const contentDisplay = document.getElementById('content-display');
+                    contentDisplay.innerHTML = '<p class="text-red-500 mt-4">Error: Please log in to fetch content.</p>';
+                    return;
                 }
-                displayBookmarkContent(url, data.title, data.summary);
-            })
-            .catch(error => {
-                console.error('Fetch error:', error);
-                const contentDisplay = document.getElementById('content-display');
-                contentDisplay.innerHTML = `<p class="text-red-500 mt-4">Error: ${escapeHTML(error.message || 'An error occurred while fetching the content.')}</p>`;
+                
+                fetch('/fetch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({url: url}),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    displayBookmarkContent(url, data.title, data.summary);
+                })
+                .catch(error => {
+                    console.error('Fetch error:', error);
+                    const contentDisplay = document.getElementById('content-display');
+                    contentDisplay.innerHTML = `<p class="text-red-500 mt-4">Error: ${escapeHTML(error.message || 'An error occurred while fetching the content.')}</p>`;
+                });
             });
         }
 
@@ -311,6 +386,35 @@
             .catch(error => {
                 console.error('Error:', error);
                 alert('An error occurred while saving the bookmark.');
+            });
+        }
+
+        function isLoggedIn() {
+            return fetch('/check_login')
+                .then(response => response.json())
+                .then(data => {
+                    console.log('Login status:', data.logged_in);
+                    return data.logged_in;
+                })
+                .catch(error => {
+                    console.error('Error checking login status:', error);
+                    return false;
+                });
+        }
+
+        function logout() {
+            fetch('/logout', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAuthForms();
+                } else {
+                    alert('Logout failed: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred during logout.');
             });
         }
     </script>

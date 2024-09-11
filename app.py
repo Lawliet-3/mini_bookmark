@@ -63,7 +63,7 @@ def login():
         session['username'] = username
         return jsonify({"success": True, "username": username})
     else:
-        return jsonify({"error": "Invalid username or password"}), 401
+        return jsonify({"success": False, "error": "Invalid username or password"}), 401
 
 @app.route('/logout', methods=['POST'])
 def logout():
@@ -232,7 +232,10 @@ classifier = train_classifier()
 
 @app.route('/check_login')
 def check_login():
-    return jsonify({"logged_in": 'username' in session})
+    if 'username' in session:
+        return jsonify({"logged_in": True})
+    else:
+        return jsonify({"logged_in": False})
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')

@@ -10,3 +10,5 @@ robotexclusionrulesparser
 python-telegram-bot
 python-dotenv
 aiofiles
+flask-session
+redis
