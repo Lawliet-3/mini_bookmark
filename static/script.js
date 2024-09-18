@@ -49,42 +49,47 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(response => {
             console.log('Response status:', response.status);
             console.log('Response headers:', response.headers);
-            return response.text().then(text => {
-                try {
-                    return JSON.parse(text);
-                } catch (e) {
-                    console.error('Error parsing JSON:', e);
-                    console.log('Raw response:', text);
-                    throw new Error('Invalid JSON response from server');
-                }
-            });
+            return response.json();
         })
         .then(data => {
             if (data.error) {
                 throw new Error(data.error);
             }
             if (contentDisplay) {
-                contentDisplay.innerHTML = `
-                    <h2>${data.title || 'No title'}</h2>
-                    <h3>Summary:</h3>
-                    <p>${data.summary || 'No summary available'}</p>
-                    <h3>Full Text:</h3>
-                    <p>${data.full_text || 'No full text available'}</p>
-                `;
+                if (data.type === 'article') {
+                    contentDisplay.innerHTML = `
+                        <h2>${data.title || 'No title'}</h2>
+                        <h3>Summary:</h3>
+                        <p>${data.summary || 'No summary available'}</p>
+                        <h3>Full Text:</h3>
+                        <p>${data.full_text || 'No full text available'}</p>
+                    `;
+                } else if (data.type === 'list') {
+                    let linksHtml = data.links.map(link => `
+                        <div class="link-item">
+                            ${link.image ? `<img src="${link.image}" alt="${link.title}" class="link-image">` : '<div class="no-image"></div>'}
+                            <a href="${link.url}" target="_blank" class="link-title">${link.title}</a>
+                        </div>
+                    `).join('');
+                    contentDisplay.innerHTML = `
+                        <h2>${data.title || 'Link List'}</h2>
+                        <div class="links-container">${linksHtml}</div>
+                    `;
+                }
             } else {
                 console.error('contentDisplay element not found');
             }
             if (saveButton) {
                 saveButton.dataset.url = url;
                 saveButton.dataset.title = data.title || 'No title';
-                saveButton.dataset.summary = data.summary || 'No summary available';
+                saveButton.dataset.summary = data.type === 'article' ? (data.summary || 'No summary available') : 'List of links';
             } else {
                 console.error('saveButton element not found');
             }
             if (downloadButton) {
                 downloadButton.dataset.url = url;
                 downloadButton.dataset.title = data.title || 'No title';
-                downloadButton.dataset.summary = data.summary || 'No summary available';
+                downloadButton.dataset.summary = data.type === 'article' ? (data.summary || 'No summary available') : 'List of links';
             } else {
                 console.error('downloadButton element not found');
             }
