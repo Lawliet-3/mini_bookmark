@@ -121,15 +121,82 @@ async def list_bookmarks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if not bookmarks:
             await update.message.reply_text("You have no saved bookmarks.")
             return
-        response_text = "Your bookmarks:\n\n"
+        
+        keyboard = []
         for bookmark in bookmarks:
-            response_text += f"• {bookmark['title']}\n{bookmark['url']}\n\n"
-        await update.message.reply_text(response_text)
+            callback_data = f"read_bookmark_{bookmark['_id']}"
+            keyboard.append([InlineKeyboardButton(bookmark['title'], callback_data=callback_data)])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await update.message.reply_text("Your bookmarks:", reply_markup=reply_markup)
     except Exception as e:
         await update.message.reply_text(f"Error listing bookmarks: {str(e)}")
 
-import html
-from bs4 import BeautifulSoup
+async def read_bookmark(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    await query.answer()
+    
+    bookmark_id = query.data.split('_')[2]
+    try:
+        response = requests.get(f"{WEBSITE_URL}/bookmark/{bookmark_id}",
+                                cookies={"session": context.user_data.get('session_id', '')})
+        response.raise_for_status()
+        bookmark = response.json()
+        
+        if 'url' not in bookmark or not bookmark['url']:
+            await query.edit_message_text("Error: Bookmark URL is missing or invalid.")
+            return
+
+        # Fetch the content of the bookmark
+        fetch_response = requests.post(f"{WEBSITE_URL}/fetch",
+                                       json={"url": bookmark['url']},
+                                       cookies={"session": context.user_data.get('session_id', '')})
+        fetch_response.raise_for_status()
+        content = fetch_response.json()
+        
+        if 'type' not in content:
+            await query.edit_message_text("Error: Unable to determine content type.")
+            return
+
+        message = f"<b>{html.escape(bookmark['title'])}</b>\n\n"
+        message += f"URL: {html.escape(bookmark['url'])}\n\n"
+
+        if content['type'] == 'article':
+            soup = BeautifulSoup(content.get('full_text', ''), 'html.parser')
+            clean_content = soup.get_text()
+            message += f"<b>Content:</b>\n{html.escape(clean_content[:4000])}..."
+            if len(clean_content) > 4000:
+                message += "\n\n(Content truncated due to length limits)"
+        elif content['type'] == 'list':
+            links = content.get('links', [])
+            message += "<b>Links:</b>\n"
+            for link in links:
+                message += f"• <a href='{html.escape(link['url'])}'>{html.escape(link['title'])}</a>\n"
+        else:
+            message += "Unsupported content type"
+
+        # Generate a unique ID for this bookmark read operation
+        read_id = str(uuid.uuid4())
+        context.user_data[f'read_{read_id}'] = bookmark['url']
+
+        # Add a download button
+        keyboard = [
+            [InlineKeyboardButton("Download Content", callback_data=f"download_{read_id}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        # Split the message if it's too long
+        if len(message) > 4096:
+            chunks = [message[i:i+4096] for i in range(0, len(message), 4096)]
+            await query.edit_message_text(chunks[0], parse_mode='HTML', disable_web_page_preview=True)
+            for chunk in chunks[1:]:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text=chunk, parse_mode='HTML', disable_web_page_preview=True)
+            # Send the download button with the last message
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="Download options:", reply_markup=reply_markup)
+        else:
+            await query.edit_message_text(message, parse_mode='HTML', disable_web_page_preview=True, reply_markup=reply_markup)
+    except Exception as e:
+        await query.edit_message_text(f"Error reading bookmark: {str(e)}")
 
 async def fetch_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not context.user_data.get('logged_in'):
@@ -147,14 +214,22 @@ async def fetch_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         response.raise_for_status()
         content = response.json()
         
-        # Clean and format the summary
-        soup = BeautifulSoup(content['summary'], 'html.parser')
-        clean_summary = soup.get_text()
-        formatted_summary = html.escape(clean_summary[:1000]) + "..." if len(clean_summary) > 1000 else html.escape(clean_summary)
+        if content['type'] == 'article':
+            # Strip HTML tags from the summary
+            soup = BeautifulSoup(content['summary'], 'html.parser')
+            clean_summary = soup.get_text()
+            message = f"<b>Title:</b> {html.escape(content['title'])}\n\n<b>Summary:</b>\n{html.escape(clean_summary[:1000])}..."
+        elif content['type'] == 'list':
+            links = content.get('links', [])
+            message = f"<b>Title:</b> {html.escape(content['title'])}\n\n<b>Links:</b>\n"
+            for link in links[:5]:  # Limit to first 5 links
+                message += f"• <a href='{html.escape(link['url'])}'>{html.escape(link['title'])}</a>\n"
+            if len(links) > 5:
+                message += "...(more links available)"
+        else:
+            message = "Unsupported content type"
         
-        message = f"<b>Title:</b> {html.escape(content['title'])}\n\n<b>Summary:</b>\n{formatted_summary}"
-        
-        await update.message.reply_text(message, parse_mode='HTML')
+        await update.message.reply_text(message, parse_mode='HTML', disable_web_page_preview=True)
         
         # Generate a unique ID for this fetch operation
         fetch_id = str(uuid.uuid4())
@@ -173,11 +248,11 @@ async def download_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     query = update.callback_query
     await query.answer()
     
-    fetch_id = query.data.split('_')[1]
-    url = context.user_data.get(f'fetch_{fetch_id}')
+    operation_id = query.data.split('_')[1]
+    url = context.user_data.get(f'fetch_{operation_id}') or context.user_data.get(f'read_{operation_id}')
     
     if not url:
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, the download link has expired. Please fetch the URL again.")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Sorry, the download link has expired. Please fetch the URL or read the bookmark again.")
         return
     
     try:
@@ -192,8 +267,14 @@ async def download_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         async with aiofiles.open(filename, mode='w', encoding='utf-8') as file:
             await file.write(f"Title: {content['title']}\n\n")
             await file.write(f"URL: {url}\n\n")
-            await file.write(f"Summary: {content['summary']}\n\n")
-            await file.write(f"Full Content: {content['full_text']}")
+            if content['type'] == 'article':
+                soup = BeautifulSoup(content['full_text'], 'html.parser')
+                clean_content = soup.get_text()
+                await file.write(f"Content:\n{clean_content}")
+            elif content['type'] == 'list':
+                await file.write("Links:\n")
+                for link in content['links']:
+                    await file.write(f"- {link['title']}: {link['url']}\n")
         
         # Send the file to the user
         await context.bot.send_document(chat_id=update.effective_chat.id, document=open(filename, 'rb'))
@@ -202,7 +283,10 @@ async def download_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         os.remove(filename)
         
         # Clean up the stored URL
-        del context.user_data[f'fetch_{fetch_id}']
+        if f'fetch_{operation_id}' in context.user_data:
+            del context.user_data[f'fetch_{operation_id}']
+        elif f'read_{operation_id}' in context.user_data:
+            del context.user_data[f'read_{operation_id}']
     except Exception as e:
         await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Error downloading content: {str(e)}")
 
@@ -270,6 +354,7 @@ def main() -> None:
     application.add_handler(CommandHandler("fetch", fetch_url))
     application.add_handler(CommandHandler("website", website))
     application.add_handler(CallbackQueryHandler(download_content, pattern="^download_"))
+    application.add_handler(CallbackQueryHandler(read_bookmark, pattern="^read_bookmark_"))
 
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 

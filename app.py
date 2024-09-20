@@ -83,13 +83,21 @@ async def fetch_content_route():
 async def fetch_content(url):
     print(f"Received request to fetch URL: {url}")
     try:
+        if not url or '//' not in url:
+            return {'error': 'Invalid URL', 'type': 'error'}
+
         # Check robots.txt
-        robots_url = f"{url.split('//', 1)[0]}//{url.split('//', 1)[1].split('/', 1)[0]}/robots.txt"
+        parsed_url = url.split('//')
+        if len(parsed_url) < 2 or '/' not in parsed_url[1]:
+            return {'error': 'Invalid URL format', 'type': 'error'}
+
+        domain = parsed_url[1].split('/', 1)[0]
+        robots_url = f"{parsed_url[0]}//{domain}/robots.txt"
         print(f"Checking robots.txt at: {robots_url}")
         rp.fetch(robots_url)
         if not rp.is_allowed(url, '*'):
             print(f"Access to {url} is not allowed by robots.txt")
-            return {'error': 'Access to this URL is not allowed by robots.txt'}
+            return {'error': 'Access to this URL is not allowed by robots.txt', 'type': 'error'}
 
         print("Fetching content with JavaScript support...")
         html_content = await fetch_url_with_js(url)
@@ -102,8 +110,9 @@ async def fetch_content(url):
             return {
                 'type': 'article',
                 'title': parsed_content['title'],
-                'summary': parsed_content['main_content'],
-                'full_text': parsed_content['main_content']
+                'summary': parsed_content['main_content'][:1000] + "...",
+                'full_text': parsed_content['main_content'],
+                'url': url
             }
         else:
             print("Extracting links from list page...")
@@ -112,13 +121,14 @@ async def fetch_content(url):
             return {
                 'type': 'list',
                 'title': soup.title.string if soup.title else 'Link List',
-                'links': links
+                'links': links,
+                'url': url
             }
     except Exception as e:
         print(f"Error fetching content: {str(e)}")
         import traceback
         traceback.print_exc()
-        return {'error': str(e)}
+        return {'error': str(e), 'type': 'error'}
 
 @app.route('/save_bookmark', methods=['POST'])
 def save_bookmark():
@@ -127,16 +137,22 @@ def save_bookmark():
     
     data = request.json
     try:
-        mongo.db.bookmarks.insert_one({
+        bookmark_data = {
             'username': session['username'],
-            'url': data['url'],
-            'title': data['title'],
-            'summary': data['summary']
-        })
+            'url': data.get('url', ''),
+            'title': data.get('title', ''),
+            'type': data.get('type', 'unknown')
+        }
+        if data['type'] == 'article':
+            bookmark_data['summary'] = data.get('summary', '')
+        elif data['type'] == 'list':
+            bookmark_data['links'] = data.get('links', [])
+        
+        mongo.db.bookmarks.insert_one(bookmark_data)
         return jsonify({'success': True})
     except Exception as e:
         print(f"Error saving bookmark: {str(e)}")
-        return jsonify({'success': False})
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/bookmarks', methods=['GET'])
 def get_bookmarks():
@@ -147,6 +163,18 @@ def get_bookmarks():
     for bookmark in bookmarks:
         bookmark['_id'] = str(bookmark['_id'])  # Convert ObjectId to string
     return jsonify(bookmarks)
+
+@app.route('/bookmark/<bookmark_id>', methods=['GET'])
+def get_bookmark(bookmark_id):
+    if 'username' not in session:
+        return jsonify({"error": "Not logged in"}), 401
+    
+    bookmark = mongo.db.bookmarks.find_one({'_id': ObjectId(bookmark_id), 'username': session['username']})
+    if bookmark:
+        bookmark['_id'] = str(bookmark['_id'])  # Convert ObjectId to string
+        return jsonify(bookmark)
+    else:
+        return jsonify({"error": "Bookmark not found"}), 404
 
 async def fetch_url_with_js(url):
     async with async_playwright() as p:

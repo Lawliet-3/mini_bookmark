@@ -249,7 +249,8 @@
         function createBookmarkCard(bookmark) {
             const card = document.createElement('div');
             card.className = 'bg-white rounded-lg shadow-md p-4 mb-4 hover:shadow-lg transition duration-300';
-            card.innerHTML = `
+            
+            let contentHtml = `
                 <div class="flex justify-between items-center">
                     <div class="cursor-pointer flex-grow overflow-hidden mr-2">
                         <h3 class="text-sm font-semibold text-gray-800 truncate">${escapeHTML(bookmark.title)}</h3>
@@ -261,10 +262,20 @@
                 </div>
             `;
             
+            if (bookmark.type === 'list') {
+                contentHtml += `
+                    <div class="mt-2">
+                        <p class="text-xs text-gray-600">List of ${bookmark.links.length} links</p>
+                    </div>
+                `;
+            }
+            
+            card.innerHTML = contentHtml;
+            
             // Make the card content clickable
             const cardContent = card.querySelector('.cursor-pointer');
             cardContent.addEventListener('click', () => {
-                displayBookmarkContent(bookmark.url, bookmark.title, bookmark.summary);
+                displayBookmarkContent(bookmark);
             });
             
             // Add click event for delete button
@@ -289,16 +300,33 @@
             );
         }
 
-        function displayBookmarkContent(url, title, summary) {
+        function displayBookmarkContent(bookmark) {
             const contentDisplay = document.getElementById('content-display');
-            contentDisplay.innerHTML = `
-                <h2 class="text-2xl font-bold mb-4">${escapeHTML(title)}</h2>
-                <p class="text-gray-600 mb-2">${escapeHTML(url)}</p>
-                <h3 class="text-xl font-semibold mb-2">Summary:</h3>
-                <div class="mb-4"></div>
+            let contentHtml = `
+                <h2 class="text-2xl font-bold mb-4">${escapeHTML(bookmark.title)}</h2>
+                <p class="text-gray-600 mb-2">${escapeHTML(bookmark.url)}</p>
             `;
-            const summaryDiv = contentDisplay.querySelector('div');
-            summaryDiv.innerHTML = summary;
+
+            if (bookmark.type === 'article') {
+                contentHtml += `
+                    <h3 class="text-xl font-semibold mb-2">Summary:</h3>
+                    <div class="mb-4">${bookmark.summary}</div>
+                `;
+            } else if (bookmark.type === 'list') {
+                contentHtml += `
+                    <h3 class="text-xl font-semibold mb-2">Links:</h3>
+                    <div class="links-container grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        ${bookmark.links.map(link => `
+                            <div class="link-item border rounded p-2">
+                                ${link.image ? `<img src="${link.image}" alt="${link.title}" class="link-image w-full h-32 object-cover mb-2">` : ''}
+                                <a href="${link.url}" target="_blank" class="link-title text-blue-500 hover:underline">${escapeHTML(link.title)}</a>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+            }
+
+            contentDisplay.innerHTML = contentHtml;
             contentDisplay.scrollIntoView({ behavior: 'smooth' });
         }
 
@@ -322,7 +350,7 @@
                     if (data.error) {
                         throw new Error(data.error);
                     }
-                    displayBookmarkContent(url, data.title, data.summary);
+                    displayBookmarkContent(data);
                 })
                 .catch(error => {
                     console.error('Fetch error:', error);
@@ -361,11 +389,34 @@
         }
 
         function saveBookmark() {
+            const contentDisplay = document.getElementById('content-display');
+            const h2Element = contentDisplay.querySelector('h2');
+            const urlElement = contentDisplay.querySelector('p');
+            
+            if (!h2Element || !urlElement) {
+                alert('No content to save. Please fetch a URL first.');
+                return;
+            }
+
             const bookmarkData = {
-                url: document.getElementById('url-input').value,
-                title: document.querySelector('#content-display h2').textContent,
-                summary: document.querySelector('#content-display p').textContent
+                url: urlElement.textContent,
+                title: h2Element.textContent,
+                type: contentType // This should be set when fetching content
             };
+
+            if (contentType === 'article') {
+                const summaryElement = contentDisplay.querySelector('div');
+                bookmarkData.summary = summaryElement ? summaryElement.innerHTML : 'No summary available';
+            } else if (contentType === 'list') {
+                const linksContainer = contentDisplay.querySelector('.links-container');
+                if (linksContainer) {
+                    bookmarkData.links = Array.from(linksContainer.querySelectorAll('.link-item')).map(item => ({
+                        title: item.querySelector('.link-title').textContent,
+                        url: item.querySelector('.link-title').href,
+                        image: item.querySelector('.link-image') ? item.querySelector('.link-image').src : null
+                    }));
+                }
+            }
 
             fetch('/save_bookmark', {
                 method: 'POST',
